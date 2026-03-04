@@ -4,19 +4,30 @@ from collections import Counter
 import matplotlib.pyplot as plt
 import io
 
+st.set_page_config(
+    page_title="CHECK FONT APP",
+    page_icon="📄",
+    layout="wide"
+)
+
 # =========================
 # Normalisasi Font
 # =========================
+
 def normalisasi_font(font_name, font_target):
+
     fname = font_name.lower()
+
     if font_target.lower() in fname:
         return font_target
+
     return font_name
 
 
 # =========================
 # Analisis PDF
 # =========================
+
 def analyze_pdf(file_bytes, font_target):
 
     doc = fitz.open(stream=file_bytes, filetype="pdf")
@@ -45,35 +56,31 @@ def analyze_pdf(file_bytes, font_target):
 
                         semua_font.append(font)
 
-                        size = round(s["size"], 1)
+                        size = round(s["size"],1)
                         semua_size.append(size)
 
-                # estimasi line spacing
                 if len(y_positions) > 1:
 
-                    for i in range(len(y_positions) - 1):
+                    for i in range(len(y_positions)-1):
 
                         spacing = abs(y_positions[i+1] - y_positions[i])
                         line_spacing_list.append(spacing)
 
-    # =====================
-    # Statistik
-    # =====================
-
     font_counter = Counter(semua_font)
     size_counter = Counter(semua_size)
 
-    total_font = sum(font_counter.values())
+    total = sum(font_counter.values())
 
     font_percentage = {
-        k: round((v / total_font) * 100, 2)
-        for k, v in font_counter.items()
+        k: round((v/total)*100,2)
+        for k,v in font_counter.items()
     }
 
-    # estimasi spasi
+    # estimasi spacing
+
     if len(line_spacing_list) > 0:
 
-        avg_spacing = sum(line_spacing_list) / len(line_spacing_list)
+        avg_spacing = sum(line_spacing_list)/len(line_spacing_list)
 
         if avg_spacing < 15:
             spacing_label = "Single (1.0)"
@@ -83,6 +90,7 @@ def analyze_pdf(file_bytes, font_target):
             spacing_label = "Double (2.0)"
 
     else:
+
         spacing_label = "Tidak terdeteksi"
 
     return font_counter, font_percentage, size_counter, spacing_label, doc
@@ -91,6 +99,7 @@ def analyze_pdf(file_bytes, font_target):
 # =========================
 # Generate Output PDF
 # =========================
+
 def generate_output_pdf(doc, font_target, font_counter, size_counter, spacing_label):
 
     result = fitz.open()
@@ -116,27 +125,28 @@ def generate_output_pdf(doc, font_target, font_counter, size_counter, spacing_la
 
     cover.insert_textbox(
         fitz.Rect(100,300,rect.width-100,rect.height-200),
-        "Aplikasi untuk mendeteksi font, ukuran font, dan spasi dokumen.",
+        "Aplikasi untuk mendeteksi font, ukuran font, dan spasi dokumen PDF.",
         fontsize=14,
         align=1
     )
 
-    # Summary
+    # Summary Page
+
     summary = result.new_page()
 
-    text = "📊 RINGKASAN ANALISIS\n\n"
+    text = "RINGKASAN ANALISIS\n\n"
 
     text += f"Font Standar : {font_target}\n\n"
 
-    text += "Distribusi Font:\n"
+    text += "Distribusi Font\n"
 
-    for f, c in font_counter.items():
+    for f,c in font_counter.items():
 
         text += f"{f} : {c}\n"
 
-    text += "\nDistribusi Ukuran Font:\n"
+    text += "\nDistribusi Ukuran Font\n"
 
-    for s, c in size_counter.items():
+    for s,c in size_counter.items():
 
         text += f"{s} pt : {c}\n"
 
@@ -145,6 +155,7 @@ def generate_output_pdf(doc, font_target, font_counter, size_counter, spacing_la
     summary.insert_text((50,50), text, fontsize=12)
 
     # highlight font salah
+
     for page in doc:
 
         blocks = page.get_text("dict")["blocks"]
@@ -187,9 +198,8 @@ def generate_output_pdf(doc, font_target, font_counter, size_counter, spacing_la
 
 st.title("📄 CHECK FONT APP by Mugi")
 
-st.write("Aplikasi untuk menganalisis font, ukuran font, dan spasi dokumen PDF.")
+st.write("Aplikasi untuk mendeteksi font, ukuran font, dan spasi dokumen PDF.")
 
-# pilih font utama
 font_target = st.selectbox(
     "Pilih Font Standar Dokumen",
     [
@@ -203,51 +213,61 @@ font_target = st.selectbox(
 
 uploaded = st.file_uploader("Upload file PDF", type="pdf")
 
-if uploaded:
+
+if uploaded is not None:
 
     st.success("File berhasil diupload!")
 
-    font_counter, font_percentage, size_counter, spacing_label, doc = analyze_pdf(
-        uploaded.read(),
-        font_target
-    )
+    try:
 
-    st.subheader("Distribusi Font")
+        file_bytes = uploaded.getvalue()
 
-    st.write(font_percentage)
+        font_counter, font_percentage, size_counter, spacing_label, doc = analyze_pdf(
+            file_bytes,
+            font_target
+        )
 
-    st.subheader("Distribusi Ukuran Font")
+        st.subheader("Distribusi Font (%)")
 
-    st.write(size_counter)
+        st.write(font_percentage)
 
-    st.subheader("Estimasi Spasi")
+        st.subheader("Distribusi Ukuran Font")
 
-    st.write(spacing_label)
+        st.write(size_counter)
 
-    # grafik
-    labels = list(font_percentage.keys())
-    values = list(font_percentage.values())
+        st.subheader("Estimasi Spasi")
 
-    fig, ax = plt.subplots()
+        st.write(spacing_label)
 
-    ax.bar(labels, values)
+        # grafik
 
-    ax.set_title("Distribusi Font (%)")
-    ax.set_ylabel("Persentase")
+        labels = list(font_percentage.keys())
+        values = list(font_percentage.values())
 
-    st.pyplot(fig)
+        fig, ax = plt.subplots()
 
-    output_pdf = generate_output_pdf(
-        doc,
-        font_target,
-        font_counter,
-        size_counter,
-        spacing_label
-    )
+        ax.bar(labels, values)
 
-    st.download_button(
-        "Download Hasil Analisis PDF",
-        data=output_pdf,
-        file_name="Hasil_Check_Font.pdf",
-        mime="application/pdf"
-    )
+        ax.set_title("Distribusi Font (%)")
+        ax.set_ylabel("Persentase")
+
+        st.pyplot(fig)
+
+        output_pdf = generate_output_pdf(
+            doc,
+            font_target,
+            font_counter,
+            size_counter,
+            spacing_label
+        )
+
+        st.download_button(
+            "Download Hasil Analisis PDF",
+            data=output_pdf,
+            file_name="Hasil_Check_Font.pdf",
+            mime="application/pdf"
+        )
+
+    except Exception as e:
+
+        st.error("File PDF tidak dapat diproses.")
