@@ -77,20 +77,32 @@ def analyze_pdf(file_bytes, target_font):
 
 
 # ==============================
-# BUAT GRAFIK
+# BUAT GRAFIK BERWARNA
 # ==============================
 
-def create_chart(font_percentage):
+def create_chart(font_percentage, target_font):
 
     labels = list(font_percentage.keys())
     values = list(font_percentage.values())
 
+    colors = []
+
+    for font in labels:
+
+        if target_font.lower() in font.lower():
+            colors.append("green")
+
+        else:
+            colors.append("orange")
+
     fig, ax = plt.subplots(figsize=(6,4))
 
-    bars = ax.bar(labels, values, color="skyblue")
+    bars = ax.bar(labels, values, color=colors)
 
     ax.set_title("Distribusi Font dalam Dokumen (%)")
     ax.set_ylabel("Persentase (%)")
+
+    ax.set_xticks(range(len(labels)))
     ax.set_xticklabels(labels, rotation=45, ha="right")
 
     for bar,val in zip(bars,values):
@@ -114,7 +126,7 @@ def create_chart(font_percentage):
 
 
 # ==============================
-# HIGHLIGHT PDF
+# HIGHLIGHT PDF BERWARNA
 # ==============================
 
 def highlight_pdf(file_bytes, target_font):
@@ -133,15 +145,28 @@ def highlight_pdf(file_bytes, target_font):
 
                     for s in l["spans"]:
 
-                        if target_font.lower() not in s["font"].lower():
+                        rect = fitz.Rect(s["bbox"])
 
-                            rect = fitz.Rect(s["bbox"])
+                        highlight = page.add_highlight_annot(rect)
 
-                            highlight = page.add_highlight_annot(rect)
-                            highlight.set_colors(stroke=(1,1,0))
-                            highlight.update()
+                        font = s["font"]
 
-                            page.add_text_annot(rect.br, f"Font: {s['font']}")
+                        if target_font.lower() in font.lower():
+
+                            # HIJAU = BENAR
+                            highlight.set_colors(stroke=(0,1,0))
+
+                        else:
+
+                            # MERAH = SALAH
+                            highlight.set_colors(stroke=(1,0,0))
+
+                            page.add_text_annot(
+                                rect.br,
+                                f"Font: {font}"
+                            )
+
+                        highlight.update()
 
     buffer = io.BytesIO()
 
@@ -155,14 +180,14 @@ def highlight_pdf(file_bytes, target_font):
 
 
 # ==============================
-# BUAT PDF HASIL
+# BUAT PDF HASIL ANALISIS
 # ==============================
 
 def build_result_pdf(original_bytes, font_counter, font_percentage, size_counter, spacing, target_font):
 
     result = fitz.open()
 
-    chart = create_chart(font_percentage)
+    chart = create_chart(font_percentage, target_font)
 
     # ======================
     # COVER
@@ -298,7 +323,7 @@ uploaded = st.file_uploader("Upload file PDF", type="pdf")
 
 if uploaded:
 
-    st.success("File berhasil diupload! Tunggu sebentar...")
+    st.success("File berhasil diupload! Silahkan Unduh Hasilnya.")
 
     file_bytes = uploaded.read()
 
@@ -306,12 +331,6 @@ if uploaded:
 
     st.subheader("Distribusi Font (%)")
     st.write(font_percentage)
-
-    st.subheader("Distribusi Font Size")
-    st.write(size_counter)
-
-    st.subheader("Estimasi Line Spacing")
-    st.write(spacing)
 
     result_pdf = build_result_pdf(
         file_bytes,
