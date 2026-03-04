@@ -7,23 +7,54 @@ import numpy as np
 
 st.set_page_config(page_title="CHECK FONT APP", page_icon="📄", layout="wide")
 
-# ==============================
-# NORMALISASI FONT
-# ==============================
+# ===============================
+# FONT FAMILY ALIAS
+# ===============================
 
-def normalize_font(font_name, target_font):
+FONT_ALIASES = {
+    "Times New Roman": [
+        "timesnewroman",
+        "timesnewromanps",
+        "timesnewromanpsmt",
+        "timesnewromanps-boldmt",
+        "timesnewromanps-italicmt",
+        "timesnewromanps-bolditalicmt"
+    ],
+    "Arial": [
+        "arial",
+        "arialmt",
+        "arial-boldmt",
+        "arial-italicmt"
+    ],
+    "Calibri": [
+        "calibri",
+        "calibri-bold",
+        "calibri-italic"
+    ]
+}
 
-    name = font_name.lower()
+# ===============================
+# CEK FONT FAMILY
+# ===============================
 
-    if target_font.lower() in name:
-        return target_font
+def is_same_font_family(font_name, target_font):
 
-    return font_name
+    font_name = font_name.lower()
+
+    if target_font not in FONT_ALIASES:
+        return target_font.lower() in font_name
+
+    for alias in FONT_ALIASES[target_font]:
+
+        if alias in font_name:
+            return True
+
+    return False
 
 
-# ==============================
+# ===============================
 # ANALISIS PDF
-# ==============================
+# ===============================
 
 def analyze_pdf(file_bytes, target_font):
 
@@ -54,7 +85,12 @@ def analyze_pdf(file_bytes, target_font):
 
                     for s in l["spans"]:
 
-                        font = normalize_font(s["font"], target_font)
+                        font_raw = s["font"]
+
+                        if is_same_font_family(font_raw, target_font):
+                            font = target_font
+                        else:
+                            font = font_raw
 
                         font_list.append(font)
                         size_list.append(round(s["size"],1))
@@ -76,9 +112,9 @@ def analyze_pdf(file_bytes, target_font):
     return font_counter, font_percentage, size_counter, spacing_est
 
 
-# ==============================
-# BUAT GRAFIK BERWARNA
-# ==============================
+# ===============================
+# GRAFIK
+# ===============================
 
 def create_chart(font_percentage, target_font):
 
@@ -89,9 +125,8 @@ def create_chart(font_percentage, target_font):
 
     for font in labels:
 
-        if target_font.lower() in font.lower():
+        if font == target_font:
             colors.append("green")
-
         else:
             colors.append("orange")
 
@@ -125,9 +160,9 @@ def create_chart(font_percentage, target_font):
     return img
 
 
-# ==============================
-# HIGHLIGHT PDF BERWARNA
-# ==============================
+# ===============================
+# HIGHLIGHT PDF
+# ===============================
 
 def highlight_pdf(file_bytes, target_font):
 
@@ -146,20 +181,17 @@ def highlight_pdf(file_bytes, target_font):
                     for s in l["spans"]:
 
                         rect = fitz.Rect(s["bbox"])
+                        font = s["font"]
 
                         highlight = page.add_highlight_annot(rect)
 
-                        font = s["font"]
+                        if is_same_font_family(font, target_font):
 
-                        if target_font.lower() in font.lower():
-
-                            # HIJAU = BENAR
-                            highlight.set_colors(stroke=(0,1,0))
+                            highlight.set_colors(stroke=(0,1,0))  # hijau
 
                         else:
 
-                            # MERAH = SALAH
-                            highlight.set_colors(stroke=(1,0,0))
+                            highlight.set_colors(stroke=(1,0,0))  # merah
 
                             page.add_text_annot(
                                 rect.br,
@@ -179,19 +211,15 @@ def highlight_pdf(file_bytes, target_font):
     return buffer
 
 
-# ==============================
-# BUAT PDF HASIL ANALISIS
-# ==============================
+# ===============================
+# BUAT PDF HASIL
+# ===============================
 
 def build_result_pdf(original_bytes, font_counter, font_percentage, size_counter, spacing, target_font):
 
     result = fitz.open()
 
     chart = create_chart(font_percentage, target_font)
-
-    # ======================
-    # COVER
-    # ======================
 
     cover = result.new_page()
 
@@ -210,17 +238,6 @@ def build_result_pdf(original_bytes, font_counter, font_percentage, size_counter
         fontsize=18,
         align=1
     )
-
-    cover.insert_textbox(
-        fitz.Rect(100,300,rect.width-100,rect.height-200),
-        "Aplikasi untuk mendeteksi font, ukuran font, dan spasi dalam dokumen PDF.",
-        fontsize=14,
-        align=1
-    )
-
-    # ======================
-    # HALAMAN RINGKASAN
-    # ======================
 
     summary = result.new_page()
 
@@ -272,15 +289,9 @@ def build_result_pdf(original_bytes, font_counter, font_percentage, size_counter
         fontsize=12
     )
 
-    # grafik
-
     img_rect = fitz.Rect(100, y+40, 500, y+300)
 
     summary.insert_image(img_rect, stream=chart.getvalue())
-
-    # ======================
-    # DOKUMEN + HIGHLIGHT
-    # ======================
 
     highlighted = highlight_pdf(original_bytes, target_font)
 
@@ -300,9 +311,9 @@ def build_result_pdf(original_bytes, font_counter, font_percentage, size_counter
     return buffer
 
 
-# ==============================
+# ===============================
 # STREAMLIT UI
-# ==============================
+# ===============================
 
 st.title("📄 CHECK FONT APP by Mugi")
 
@@ -313,9 +324,7 @@ font_target = st.selectbox(
     [
         "Times New Roman",
         "Arial",
-        "Calibri",
-        "Cambria",
-        "Georgia"
+        "Calibri"
     ]
 )
 
@@ -323,7 +332,7 @@ uploaded = st.file_uploader("Upload file PDF", type="pdf")
 
 if uploaded:
 
-    st.success("File berhasil diupload! Silahkan Unduh Hasilnya.")
+    st.success("File berhasil diupload! Tunggu sebentar...")
 
     file_bytes = uploaded.read()
 
@@ -331,6 +340,12 @@ if uploaded:
 
     st.subheader("Distribusi Font (%)")
     st.write(font_percentage)
+
+    st.subheader("Distribusi Font Size")
+    st.write(size_counter)
+
+    st.subheader("Estimasi Line Spacing")
+    st.write(spacing)
 
     result_pdf = build_result_pdf(
         file_bytes,
