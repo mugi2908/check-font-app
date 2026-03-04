@@ -2,10 +2,10 @@ import streamlit as st
 import fitz
 from collections import Counter
 import matplotlib.pyplot as plt
+import tempfile
 import io
 
 st.set_page_config(page_title="CHECK FONT APP", page_icon="📄", layout="wide")
-
 
 def normalize_font(font_name, target):
     name = font_name.lower()
@@ -14,9 +14,9 @@ def normalize_font(font_name, target):
     return font_name
 
 
-def analyze_pdf(pdf_bytes, target_font):
+def analyze_pdf(pdf_path, target_font):
 
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    doc = fitz.open(pdf_path)
 
     fonts = []
     sizes = []
@@ -51,10 +51,9 @@ def analyze_pdf(pdf_bytes, target_font):
     return font_count, font_percent, size_count
 
 
-def generate_output(pdf_bytes, target_font):
+def highlight_pdf(pdf_path, target_font):
 
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    result = fitz.open()
+    doc = fitz.open(pdf_path)
 
     for page in doc:
 
@@ -76,16 +75,13 @@ def generate_output(pdf_bytes, target_font):
                             highlight.set_colors(stroke=(1,1,0))
                             highlight.update()
 
-    result.insert_pdf(doc)
-
-    buffer = io.BytesIO()
-    result.save(buffer)
-    buffer.seek(0)
+    output = io.BytesIO()
+    doc.save(output)
+    output.seek(0)
 
     doc.close()
-    result.close()
 
-    return buffer
+    return output
 
 
 st.title("📄 CHECK FONT APP by Mugi")
@@ -97,20 +93,18 @@ font_target = st.selectbox(
 
 uploaded = st.file_uploader("Upload PDF", type=["pdf"])
 
-
 if uploaded is not None:
 
     st.success("File berhasil diupload!")
 
     try:
 
-        pdf_bytes = uploaded.read()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
 
-        if len(pdf_bytes) == 0:
-            st.error("File kosong")
-            st.stop()
+            tmp.write(uploaded.read())
+            pdf_path = tmp.name
 
-        font_count, font_percent, size_count = analyze_pdf(pdf_bytes, font_target)
+        font_count, font_percent, size_count = analyze_pdf(pdf_path, font_target)
 
         st.subheader("Distribusi Font (%)")
         st.write(font_percent)
@@ -122,20 +116,22 @@ if uploaded is not None:
         values = list(font_percent.values())
 
         fig, ax = plt.subplots()
+
         ax.bar(labels, values)
+
         ax.set_title("Distribusi Font (%)")
 
         st.pyplot(fig)
 
-        output_pdf = generate_output(pdf_bytes, font_target)
+        highlighted_pdf = highlight_pdf(pdf_path, font_target)
 
         st.download_button(
             "Download PDF Highlight",
-            data=output_pdf,
+            data=highlighted_pdf,
             file_name="font_analysis.pdf",
             mime="application/pdf"
         )
 
     except Exception as e:
 
-        st.error(e)
+        st.error(f"Error: {e}")
