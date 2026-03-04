@@ -4,109 +4,71 @@ from collections import Counter
 import matplotlib.pyplot as plt
 import io
 
-st.set_page_config(
-    page_title="CHECK FONT APP",
-    page_icon="📄",
-    layout="wide"
-)
+st.set_page_config(page_title="CHECK FONT APP", page_icon="📄", layout="wide")
 
-# =========================
-# Normalisasi Font
-# =========================
-
-def normalisasi_font(font_name, font_target):
-
-    fname = font_name.lower()
-
-    if font_target.lower() in fname:
-        return font_target
-
+def normalize_font(font_name, target):
+    name = font_name.lower()
+    if target.lower() in name:
+        return target
     return font_name
 
 
-# =========================
-# ANALISIS PDF
-# =========================
-
-def analyze_pdf(file_bytes, font_target):
+def analyze_pdf(file_bytes, target_font):
 
     doc = fitz.open(stream=file_bytes, filetype="pdf")
 
-    semua_font = []
-    semua_size = []
-    spacing_data = []
+    fonts = []
+    sizes = []
+    spacing = []
 
     for page in doc:
-
         blocks = page.get_text("dict")["blocks"]
 
         for b in blocks:
-
             if "lines" in b:
 
-                y_positions = []
+                y_pos = []
 
-                for l in b["lines"]:
+                for line in b["lines"]:
+                    y_pos.append(line["bbox"][1])
 
-                    y_positions.append(l["bbox"][1])
+                    for span in line["spans"]:
+                        fonts.append(normalize_font(span["font"], target_font))
+                        sizes.append(round(span["size"],1))
 
-                    for s in l["spans"]:
-
-                        font = normalisasi_font(s["font"], font_target)
-                        semua_font.append(font)
-
-                        size = round(s["size"],1)
-                        semua_size.append(size)
-
-                if len(y_positions) > 1:
-
-                    for i in range(len(y_positions)-1):
-
-                        spacing = abs(y_positions[i+1] - y_positions[i])
-                        spacing_data.append(spacing)
-
-    font_counter = Counter(semua_font)
-    size_counter = Counter(semua_size)
-
-    total = sum(font_counter.values())
-
-    font_percentage = {
-        k: round((v/total)*100,2)
-        for k,v in font_counter.items()
-    }
-
-    # estimasi spacing
-
-    if len(spacing_data) > 0:
-
-        avg_spacing = sum(spacing_data)/len(spacing_data)
-
-        if avg_spacing < 15:
-            spacing_label = "Single (1.0)"
-        elif avg_spacing < 22:
-            spacing_label = "1.5 Spacing"
-        else:
-            spacing_label = "Double (2.0)"
-
-    else:
-        spacing_label = "Tidak terdeteksi"
+                if len(y_pos) > 1:
+                    for i in range(len(y_pos)-1):
+                        spacing.append(abs(y_pos[i+1] - y_pos[i]))
 
     doc.close()
 
-    return font_counter, font_percentage, size_counter, spacing_label
+    font_count = Counter(fonts)
+    size_count = Counter(sizes)
+
+    total = sum(font_count.values())
+
+    font_percent = {k: round((v/total)*100,2) for k,v in font_count.items()}
+
+    if spacing:
+        avg = sum(spacing)/len(spacing)
+
+        if avg < 15:
+            spacing_label = "Single (1.0)"
+        elif avg < 22:
+            spacing_label = "1.5 Spacing"
+        else:
+            spacing_label = "Double (2.0)"
+    else:
+        spacing_label = "Tidak terdeteksi"
+
+    return font_count, font_percent, size_count, spacing_label
 
 
-# =========================
-# GENERATE OUTPUT PDF
-# =========================
-
-def generate_output_pdf(file_bytes, font_target, font_counter, size_counter, spacing_label):
+def generate_pdf(file_bytes, target_font, font_count, size_count, spacing_label):
 
     doc = fitz.open(stream=file_bytes, filetype="pdf")
-
     result = fitz.open()
 
-    # Cover
     cover = result.new_page()
     rect = cover.rect
 
@@ -125,52 +87,34 @@ def generate_output_pdf(file_bytes, font_target, font_counter, size_counter, spa
         align=1
     )
 
-    cover.insert_textbox(
-        fitz.Rect(100,300,rect.width-100,rect.height-200),
-        "Aplikasi untuk mendeteksi font, ukuran font, dan spasi dokumen PDF.",
-        fontsize=14,
-        align=1
-    )
-
-    # Summary Page
-
     summary = result.new_page()
 
     text = "RINGKASAN ANALISIS\n\n"
-
-    text += f"Font Standar : {font_target}\n\n"
+    text += f"Font Standar : {target_font}\n\n"
 
     text += "Distribusi Font\n"
-
-    for f,c in font_counter.items():
+    for f,c in font_count.items():
         text += f"{f} : {c}\n"
 
     text += "\nDistribusi Ukuran Font\n"
-
-    for s,c in size_counter.items():
+    for s,c in size_count.items():
         text += f"{s} pt : {c}\n"
 
-    text += f"\nEstimasi Spasi : {spacing_label}\n"
+    text += f"\nEstimasi Spasi : {spacing_label}"
 
     summary.insert_text((50,50), text, fontsize=12)
-
-    # highlight font salah
 
     for page in doc:
 
         blocks = page.get_text("dict")["blocks"]
 
         for b in blocks:
-
             if "lines" in b:
 
                 for l in b["lines"]:
-
                     for s in l["spans"]:
 
-                        font = s["font"]
-
-                        if font_target.lower() not in font.lower():
+                        if target_font.lower() not in s["font"].lower():
 
                             rect = fitz.Rect(s["bbox"])
 
@@ -181,9 +125,7 @@ def generate_output_pdf(file_bytes, font_target, font_counter, size_counter, spa
     result.insert_pdf(doc)
 
     output = io.BytesIO()
-
     result.save(output)
-
     output.seek(0)
 
     doc.close()
@@ -192,29 +134,17 @@ def generate_output_pdf(file_bytes, font_target, font_counter, size_counter, spa
     return output
 
 
-# =========================
-# STREAMLIT UI
-# =========================
-
 st.title("📄 CHECK FONT APP by Mugi")
-
 st.write("Aplikasi untuk mendeteksi font, ukuran font, dan spasi dokumen PDF.")
 
 font_target = st.selectbox(
     "Pilih Font Standar Dokumen",
-    [
-        "Times New Roman",
-        "Arial",
-        "Calibri",
-        "Cambria",
-        "Georgia"
-    ]
+    ["Times New Roman","Arial","Calibri","Cambria","Georgia"]
 )
 
-uploaded = st.file_uploader("Upload file PDF", type="pdf")
+uploaded = st.file_uploader("Upload file PDF", type=["pdf"])
 
-
-if uploaded is not None:
+if uploaded:
 
     st.success("File berhasil diupload!")
 
@@ -222,48 +152,44 @@ if uploaded is not None:
 
         file_bytes = uploaded.getvalue()
 
-        font_counter, font_percentage, size_counter, spacing_label = analyze_pdf(
+        if file_bytes is None or len(file_bytes) == 0:
+            st.error("File kosong atau tidak valid")
+            st.stop()
+
+        font_count, font_percent, size_count, spacing_label = analyze_pdf(
             file_bytes,
             font_target
         )
 
         st.subheader("Distribusi Font (%)")
-        st.write(font_percentage)
+        st.write(font_percent)
 
         st.subheader("Distribusi Ukuran Font")
-        st.write(size_counter)
+        st.write(size_count)
 
         st.subheader("Estimasi Spasi")
         st.write(spacing_label)
 
-        # Grafik distribusi font
-
-        labels = list(font_percentage.keys())
-        values = list(font_percentage.values())
+        labels = list(font_percent.keys())
+        values = list(font_percent.values())
 
         fig, ax = plt.subplots()
-
         ax.bar(labels, values)
-
         ax.set_title("Distribusi Font (%)")
-        ax.set_ylabel("Persentase")
-
         st.pyplot(fig)
 
-        # Generate PDF
-
-        output_pdf = generate_output_pdf(
+        output_pdf = generate_pdf(
             file_bytes,
             font_target,
-            font_counter,
-            size_counter,
+            font_count,
+            size_count,
             spacing_label
         )
 
         st.download_button(
             "Download Hasil Analisis PDF",
             data=output_pdf,
-            file_name="Hasil_Check_Font.pdf",
+            file_name="hasil_check_font.pdf",
             mime="application/pdf"
         )
 
