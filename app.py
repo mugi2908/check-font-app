@@ -25,7 +25,7 @@ def normalisasi_font(font_name, font_target):
 
 
 # =========================
-# Analisis PDF
+# ANALISIS PDF
 # =========================
 
 def analyze_pdf(file_bytes, font_target):
@@ -34,7 +34,7 @@ def analyze_pdf(file_bytes, font_target):
 
     semua_font = []
     semua_size = []
-    line_spacing_list = []
+    spacing_data = []
 
     for page in doc:
 
@@ -53,7 +53,6 @@ def analyze_pdf(file_bytes, font_target):
                     for s in l["spans"]:
 
                         font = normalisasi_font(s["font"], font_target)
-
                         semua_font.append(font)
 
                         size = round(s["size"],1)
@@ -64,7 +63,7 @@ def analyze_pdf(file_bytes, font_target):
                     for i in range(len(y_positions)-1):
 
                         spacing = abs(y_positions[i+1] - y_positions[i])
-                        line_spacing_list.append(spacing)
+                        spacing_data.append(spacing)
 
     font_counter = Counter(semua_font)
     size_counter = Counter(semua_size)
@@ -78,9 +77,9 @@ def analyze_pdf(file_bytes, font_target):
 
     # estimasi spacing
 
-    if len(line_spacing_list) > 0:
+    if len(spacing_data) > 0:
 
-        avg_spacing = sum(line_spacing_list)/len(line_spacing_list)
+        avg_spacing = sum(spacing_data)/len(spacing_data)
 
         if avg_spacing < 15:
             spacing_label = "Single (1.0)"
@@ -90,17 +89,20 @@ def analyze_pdf(file_bytes, font_target):
             spacing_label = "Double (2.0)"
 
     else:
-
         spacing_label = "Tidak terdeteksi"
 
-    return font_counter, font_percentage, size_counter, spacing_label, doc
+    doc.close()
+
+    return font_counter, font_percentage, size_counter, spacing_label
 
 
 # =========================
-# Generate Output PDF
+# GENERATE OUTPUT PDF
 # =========================
 
-def generate_output_pdf(doc, font_target, font_counter, size_counter, spacing_label):
+def generate_output_pdf(file_bytes, font_target, font_counter, size_counter, spacing_label):
+
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
 
     result = fitz.open()
 
@@ -141,13 +143,11 @@ def generate_output_pdf(doc, font_target, font_counter, size_counter, spacing_la
     text += "Distribusi Font\n"
 
     for f,c in font_counter.items():
-
         text += f"{f} : {c}\n"
 
     text += "\nDistribusi Ukuran Font\n"
 
     for s,c in size_counter.items():
-
         text += f"{s} pt : {c}\n"
 
     text += f"\nEstimasi Spasi : {spacing_label}\n"
@@ -184,10 +184,10 @@ def generate_output_pdf(doc, font_target, font_counter, size_counter, spacing_la
 
     result.save(output)
 
-    result.close()
-    doc.close()
-
     output.seek(0)
+
+    doc.close()
+    result.close()
 
     return output
 
@@ -222,24 +222,21 @@ if uploaded is not None:
 
         file_bytes = uploaded.getvalue()
 
-        font_counter, font_percentage, size_counter, spacing_label, doc = analyze_pdf(
+        font_counter, font_percentage, size_counter, spacing_label = analyze_pdf(
             file_bytes,
             font_target
         )
 
         st.subheader("Distribusi Font (%)")
-
         st.write(font_percentage)
 
         st.subheader("Distribusi Ukuran Font")
-
         st.write(size_counter)
 
         st.subheader("Estimasi Spasi")
-
         st.write(spacing_label)
 
-        # grafik
+        # Grafik distribusi font
 
         labels = list(font_percentage.keys())
         values = list(font_percentage.values())
@@ -253,8 +250,10 @@ if uploaded is not None:
 
         st.pyplot(fig)
 
+        # Generate PDF
+
         output_pdf = generate_output_pdf(
-            doc,
+            file_bytes,
             font_target,
             font_counter,
             size_counter,
@@ -270,4 +269,4 @@ if uploaded is not None:
 
     except Exception as e:
 
-        st.error("File PDF tidak dapat diproses.")
+        st.error(f"Error: {e}")
