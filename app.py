@@ -13,9 +13,9 @@ st.set_page_config(page_title="CHECK FONT APP", page_icon="📄", layout="wide")
 
 def normalize_font(font_name, target_font):
 
-    fname = font_name.lower()
+    name = font_name.lower()
 
-    if target_font.lower() in fname:
+    if target_font.lower() in name:
         return target_font
 
     return font_name
@@ -31,7 +31,7 @@ def analyze_pdf(file_bytes, target_font):
 
     font_list = []
     size_list = []
-    line_spacing = []
+    spacing_list = []
 
     for page in doc:
 
@@ -48,7 +48,7 @@ def analyze_pdf(file_bytes, target_font):
                     y = l["bbox"][1]
 
                     if last_y is not None:
-                        line_spacing.append(abs(y - last_y))
+                        spacing_list.append(abs(y-last_y))
 
                     last_y = y
 
@@ -58,6 +58,8 @@ def analyze_pdf(file_bytes, target_font):
 
                         font_list.append(font)
                         size_list.append(round(s["size"],1))
+
+    doc.close()
 
     font_counter = Counter(font_list)
     size_counter = Counter(size_list)
@@ -69,9 +71,9 @@ def analyze_pdf(file_bytes, target_font):
         for f,c in font_counter.items()
     }
 
-    spacing_estimate = round(np.mean(line_spacing),2) if line_spacing else 0
+    spacing_est = round(np.mean(spacing_list),2) if spacing_list else 0
 
-    return font_counter, font_percentage, size_counter, spacing_estimate
+    return font_counter, font_percentage, size_counter, spacing_est
 
 
 # ==============================
@@ -92,21 +94,23 @@ def create_chart(font_percentage):
     ax.set_xticklabels(labels, rotation=45, ha="right")
 
     for bar,val in zip(bars,values):
+
         ax.text(
-            bar.get_x() + bar.get_width()/2,
+            bar.get_x()+bar.get_width()/2,
             bar.get_height(),
             f"{val}%",
             ha="center"
         )
 
-    chart = io.BytesIO()
+    img = io.BytesIO()
+
     plt.tight_layout()
-    plt.savefig(chart, format="png")
+    plt.savefig(img, format="png")
     plt.close()
 
-    chart.seek(0)
+    img.seek(0)
 
-    return chart
+    return img
 
 
 # ==============================
@@ -129,9 +133,7 @@ def highlight_pdf(file_bytes, target_font):
 
                     for s in l["spans"]:
 
-                        font = s["font"]
-
-                        if target_font.lower() not in font.lower():
+                        if target_font.lower() not in s["font"].lower():
 
                             rect = fitz.Rect(s["bbox"])
 
@@ -139,10 +141,12 @@ def highlight_pdf(file_bytes, target_font):
                             highlight.set_colors(stroke=(1,1,0))
                             highlight.update()
 
-                            page.add_text_annot(rect.br, f"Font: {font}")
+                            page.add_text_annot(rect.br, f"Font: {s['font']}")
 
     buffer = io.BytesIO()
+
     doc.save(buffer)
+
     doc.close()
 
     buffer.seek(0)
@@ -151,7 +155,7 @@ def highlight_pdf(file_bytes, target_font):
 
 
 # ==============================
-# BUAT PDF HASIL ANALISIS
+# BUAT PDF HASIL
 # ==============================
 
 def build_result_pdf(original_bytes, font_counter, font_percentage, size_counter, spacing, target_font):
@@ -171,7 +175,7 @@ def build_result_pdf(original_bytes, font_counter, font_percentage, size_counter
     cover.insert_textbox(
         fitz.Rect(0,100,rect.width,200),
         "CHECK FONT APP",
-        fontsize=32,
+        fontsize=30,
         align=1
     )
 
@@ -189,49 +193,68 @@ def build_result_pdf(original_bytes, font_counter, font_percentage, size_counter
         align=1
     )
 
-
     # ======================
-    # RINGKASAN ANALISIS
+    # HALAMAN RINGKASAN
     # ======================
 
     summary = result.new_page()
 
-    text = "Ringkasan Analisis Dokumen\n\n"
+    y = 50
 
-    text += f"Font Standar: {target_font}\n\n"
+    summary.insert_text((50,y),"Ringkasan Analisis Dokumen",fontsize=16)
+    y += 30
 
-    text += "Distribusi Font:\n"
+    summary.insert_text((50,y),f"Font Standar : {target_font}",fontsize=12)
+    y += 30
+
+    summary.insert_text((50,y),"Distribusi Font:",fontsize=13)
+    y += 20
 
     total = sum(font_counter.values())
 
-    for f,c in font_counter.most_common():
+    for font,count in font_counter.most_common():
 
-        percent = (c/total)*100
+        percent = (count/total)*100
 
-        text += f"- {f}: {c} teks ({percent:.2f}%)\n"
+        summary.insert_text(
+            (70,y),
+            f"- {font}: {count} teks ({percent:.2f}%)",
+            fontsize=11
+        )
 
-    text += "\nDistribusi Font Size:\n"
+        y += 15
+
+    y += 20
+
+    summary.insert_text((50,y),"Distribusi Font Size:",fontsize=13)
+    y += 20
 
     for size,count in size_counter.most_common():
 
-        text += f"- {size} pt : {count} teks\n"
+        summary.insert_text(
+            (70,y),
+            f"- {size} pt : {count} teks",
+            fontsize=11
+        )
 
-    text += f"\nEstimasi Line Spacing: {spacing}\n"
+        y += 15
 
-    if len(font_counter)==1 and target_font in font_counter:
-        text += "\nSemua teks menggunakan font standar"
-    else:
-        text += "\nDokumen masih mengandung font selain font standar"
+    y += 20
 
-    summary.insert_text((50,50), text, fontsize=12)
+    summary.insert_text(
+        (50,y),
+        f"Estimasi Line Spacing : {spacing}",
+        fontsize=12
+    )
 
-    img_rect = fitz.Rect(50,250,500,500)
+    # grafik
+
+    img_rect = fitz.Rect(100, y+40, 500, y+300)
 
     summary.insert_image(img_rect, stream=chart.getvalue())
 
-
     # ======================
-    # DOKUMEN DENGAN HIGHLIGHT
+    # DOKUMEN + HIGHLIGHT
     # ======================
 
     highlighted = highlight_pdf(original_bytes, target_font)
@@ -258,7 +281,7 @@ def build_result_pdf(original_bytes, font_counter, font_percentage, size_counter
 
 st.title("📄 CHECK FONT APP by Mugi")
 
-st.write("Aplikasi untuk mendeteksi font, ukuran font, dan spasi pada dokumen PDF.")
+st.write("Aplikasi untuk mendeteksi font, ukuran font, dan spasi dokumen PDF.")
 
 font_target = st.selectbox(
     "Pilih Font Standar Dokumen",
@@ -275,22 +298,19 @@ uploaded = st.file_uploader("Upload file PDF", type="pdf")
 
 if uploaded:
 
-    st.success("File berhasil diupload! Sedang dianalisis...")
+    st.success("File berhasil diupload! Tunggu sebentar...")
 
     file_bytes = uploaded.read()
 
     font_counter, font_percentage, size_counter, spacing = analyze_pdf(file_bytes, font_target)
 
     st.subheader("Distribusi Font (%)")
-
     st.write(font_percentage)
 
     st.subheader("Distribusi Font Size")
-
     st.write(size_counter)
 
     st.subheader("Estimasi Line Spacing")
-
     st.write(spacing)
 
     result_pdf = build_result_pdf(
