@@ -4,154 +4,250 @@ from collections import Counter
 import matplotlib.pyplot as plt
 import io
 
-# Daftar alias font Times New Roman
-ALIAS_TIMES = [
-    "times new roman",
-    "timesnewromanps",
-    "timesnewromanpsmt",
-    "timesnewromanps-boldmt",
-    "timesnewromanps-italicmt",
-    "timesnewromanps-bolditalicmt"
-]
-
-def normalisasi_font(font_name):
-    """Samakan nama font agar variasi Times New Roman dianggap satu"""
+# =========================
+# Normalisasi Font
+# =========================
+def normalisasi_font(font_name, font_target):
     fname = font_name.lower()
-    for alias in ALIAS_TIMES:
-        if alias in fname:
-            return "Times New Roman"
+    if font_target.lower() in fname:
+        return font_target
     return font_name
 
-def highlight_with_cover(file_bytes):
+
+# =========================
+# Analisis PDF
+# =========================
+def analyze_pdf(file_bytes, font_target):
+
     doc = fitz.open(stream=file_bytes, filetype="pdf")
+
     semua_font = []
+    semua_size = []
+    line_spacing_list = []
 
-    # kumpulkan semua font
     for page in doc:
+
         blocks = page.get_text("dict")["blocks"]
+
         for b in blocks:
+
             if "lines" in b:
+
+                y_positions = []
+
                 for l in b["lines"]:
+
+                    y_positions.append(l["bbox"][1])
+
                     for s in l["spans"]:
-                        semua_font.append(normalisasi_font(s["font"]))
 
-    counter = Counter(semua_font)
-    total = sum(counter.values())
+                        font = normalisasi_font(s["font"], font_target)
 
-    # === Chart distribusi font ===
-    labels = list(counter.keys())
-    sizes = [counter[f] for f in labels]
-    persentase = [round((x/total)*100, 2) for x in sizes]
+                        semua_font.append(font)
 
-    fig, ax = plt.subplots(figsize=(6, 4))
-    bars = ax.bar(labels, persentase, color="skyblue")
-    ax.set_title("Distribusi Font dalam Dokumen (%)")
-    ax.set_ylabel("Persentase (%)")
-    ax.set_xticks(range(len(labels)))
-    ax.set_xticklabels(labels, rotation=45, ha="right")
+                        size = round(s["size"], 1)
+                        semua_size.append(size)
 
-    for bar, p in zip(bars, persentase):
-        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                f"{p}%", ha="center", va="bottom", fontsize=8)
+                # estimasi line spacing
+                if len(y_positions) > 1:
 
-    chart_path = "chart.png"
-    plt.tight_layout()
-    plt.savefig(chart_path, bbox_inches="tight")
-    plt.close()
+                    for i in range(len(y_positions) - 1):
 
-    # === Buat dokumen hasil ===
+                        spacing = abs(y_positions[i+1] - y_positions[i])
+                        line_spacing_list.append(spacing)
+
+    # =====================
+    # Statistik
+    # =====================
+
+    font_counter = Counter(semua_font)
+    size_counter = Counter(semua_size)
+
+    total_font = sum(font_counter.values())
+
+    font_percentage = {
+        k: round((v / total_font) * 100, 2)
+        for k, v in font_counter.items()
+    }
+
+    # estimasi spasi
+    if len(line_spacing_list) > 0:
+
+        avg_spacing = sum(line_spacing_list) / len(line_spacing_list)
+
+        if avg_spacing < 15:
+            spacing_label = "Single (1.0)"
+        elif avg_spacing < 22:
+            spacing_label = "1.5 Spacing"
+        else:
+            spacing_label = "Double (2.0)"
+
+    else:
+        spacing_label = "Tidak terdeteksi"
+
+    return font_counter, font_percentage, size_counter, spacing_label, doc
+
+
+# =========================
+# Generate Output PDF
+# =========================
+def generate_output_pdf(doc, font_target, font_counter, size_counter, spacing_label):
+
     result = fitz.open()
 
-    # --- Cover ---
+    # Cover
     cover = result.new_page()
     rect = cover.rect
+
     cover.insert_textbox(
-        fitz.Rect(0, 100, rect.width, 200),
+        fitz.Rect(0,100,rect.width,200),
         "CHECK FONT APP",
         fontsize=30,
-        fontname="helv",
         align=1,
-        color=(0, 0, 1)
+        fontname="helv"
     )
+
     cover.insert_textbox(
-        fitz.Rect(0, 160, rect.width, 220),
+        fitz.Rect(0,150,rect.width,230),
         "by Mugi",
         fontsize=18,
-        fontname="helv",
-        align=1,
-        color=(0.2, 0.2, 0.2)
+        align=1
     )
 
     cover.insert_textbox(
-        fitz.Rect(100, 300, rect.width-100, rect.height-200),
-        "Aplikasi otomatis untuk mendeteksi dan menandai font dalam dokumen.\n"
-        "Hasil analisis disajikan dengan ringkasan, grafik distribusi, dan highlight teks.",
+        fitz.Rect(100,300,rect.width-100,rect.height-200),
+        "Aplikasi untuk mendeteksi font, ukuran font, dan spasi dokumen.",
         fontsize=14,
-        fontname="helv",
-        align=1,
-        color=(0, 0, 0)
+        align=1
     )
 
-    cover.draw_rect(
-        fitz.Rect(50, rect.height-150, rect.width-50, rect.height-100),
-        color=(0.2, 0.5, 0.9),
-        fill=(0.2, 0.5, 0.9)
-    )
-
-    # --- Ringkasan ---
+    # Summary
     summary = result.new_page()
-    text = "📊 Ringkasan Analisis Font\n\n"
-    for font, count in counter.most_common():
-        persen = (count / total) * 100
-        text += f"- {font}: {count} teks ({persen:.2f}%)\n"
 
-    if len(counter) == 1 and "Times New Roman" in counter:
-        text += "\n✅ Semua teks sudah menggunakan Times New Roman"
-    else:
-        text += "\n⚠️ Dokumen masih mengandung font selain Times New Roman"
+    text = "📊 RINGKASAN ANALISIS\n\n"
 
-    summary.insert_text((50, 50), text, fontsize=12)
-    rect_chart = fitz.Rect(50, 200, 500, 500)
-    summary.insert_image(rect_chart, filename=chart_path)
+    text += f"Font Standar : {font_target}\n\n"
 
-    # --- Highlight font salah ---
+    text += "Distribusi Font:\n"
+
+    for f, c in font_counter.items():
+
+        text += f"{f} : {c}\n"
+
+    text += "\nDistribusi Ukuran Font:\n"
+
+    for s, c in size_counter.items():
+
+        text += f"{s} pt : {c}\n"
+
+    text += f"\nEstimasi Spasi : {spacing_label}\n"
+
+    summary.insert_text((50,50), text, fontsize=12)
+
+    # highlight font salah
     for page in doc:
+
         blocks = page.get_text("dict")["blocks"]
+
         for b in blocks:
+
             if "lines" in b:
+
                 for l in b["lines"]:
+
                     for s in l["spans"]:
-                        font = normalisasi_font(s["font"])
-                        teks = s["text"].strip()
-                        if teks and font != "Times New Roman":
+
+                        font = s["font"]
+
+                        if font_target.lower() not in font.lower():
+
                             rect = fitz.Rect(s["bbox"])
+
                             highlight = page.add_highlight_annot(rect)
-                            highlight.set_colors(stroke=(1, 1, 0))  # kuning
+                            highlight.set_colors(stroke=(1,1,0))
                             highlight.update()
-                            page.add_text_annot(rect.br, f"Font: {font}")
 
     result.insert_pdf(doc)
 
-    # simpan ke memory buffer
     output = io.BytesIO()
+
     result.save(output)
+
     result.close()
     doc.close()
+
     output.seek(0)
+
     return output
 
-# ===================== Streamlit UI =====================
+
+# =========================
+# STREAMLIT UI
+# =========================
+
 st.title("📄 CHECK FONT APP by Mugi")
-st.write("Aplikasi untuk mendeteksi font pada dokumen PDF.")
+
+st.write("Aplikasi untuk menganalisis font, ukuran font, dan spasi dokumen PDF.")
+
+# pilih font utama
+font_target = st.selectbox(
+    "Pilih Font Standar Dokumen",
+    [
+        "Times New Roman",
+        "Arial",
+        "Calibri",
+        "Cambria",
+        "Georgia"
+    ]
+)
 
 uploaded = st.file_uploader("Upload file PDF", type="pdf")
 
 if uploaded:
-    st.success("File berhasil diupload! Tunggu sebentar...")
-    highlighted_pdf = highlight_with_cover(uploaded.read())
+
+    st.success("File berhasil diupload!")
+
+    font_counter, font_percentage, size_counter, spacing_label, doc = analyze_pdf(
+        uploaded.read(),
+        font_target
+    )
+
+    st.subheader("Distribusi Font")
+
+    st.write(font_percentage)
+
+    st.subheader("Distribusi Ukuran Font")
+
+    st.write(size_counter)
+
+    st.subheader("Estimasi Spasi")
+
+    st.write(spacing_label)
+
+    # grafik
+    labels = list(font_percentage.keys())
+    values = list(font_percentage.values())
+
+    fig, ax = plt.subplots()
+
+    ax.bar(labels, values)
+
+    ax.set_title("Distribusi Font (%)")
+    ax.set_ylabel("Persentase")
+
+    st.pyplot(fig)
+
+    output_pdf = generate_output_pdf(
+        doc,
+        font_target,
+        font_counter,
+        size_counter,
+        spacing_label
+    )
+
     st.download_button(
-        "📥 Download hasil analisis PDF",
-        data=highlighted_pdf,
-        file_name="Hasil_Cek_Font.pdf",
+        "Download Hasil Analisis PDF",
+        data=output_pdf,
+        file_name="Hasil_Check_Font.pdf",
         mime="application/pdf"
     )
